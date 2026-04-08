@@ -39,7 +39,7 @@ agm_server ──→ agm_core ←── agm_cli
 - **异步运行时**：`tokio`（与 Axum、多数 HTTP/客户端生态一致）。
 - **序列化**：`serde` + `serde_json`；HTTP 与 Tauri 命令边界统一使用 JSON 友好类型，便于前后端与双边界对齐。
 - **HTTP**：`axum` + `tower` 生态；静态文件可用 `tower-http::services::ServeDir` 或等价方案。
-- **配置**：`agm_core` 内集中定义结构与默认值迁移策略（可与原 Python `Config` 版本升级思路对齐）。
+- **配置**：`agm_core` 内集中定义 **`config.toml` / `sn_list.toml`** 的结构、默认值与迁移策略（可与原版 Python `Config` 版本升级思路对齐）。
 - **错误**：在 `agm_core` 定义统一错误类型（或分层错误），在 CLI 中格式化输出，在 HTTP 中映射为状态码 + 结构化 body，在 Tauri 中映射为可序列化的错误载荷。
 
 ### 3.2 前端（agm-webui）
@@ -106,8 +106,11 @@ agm_server ──→ agm_core ←── agm_cli
 
 ### 6.1 配置文件与清单（已定）
 
-- **主配置**：使用 **`config.toml`**，不再使用原版的 `config.json`。从旧版迁移的路径、字段映射或一次性导入工具可在实现阶段补充。
-- **sn_list**：**`sn_list.txt`** 保持不变（文件名与用途与原版一致）。
+- **主配置**：**`config.toml`**，替代原版 `config.json`。从旧版的字段映射或一次性导入工具可在实现阶段补充。
+- **追番清单**：**`sn_list.toml`**，替代原版 `sn_list.txt`；条目结构（如 `[[watch]]` 等）由 `agm_core` 定义。可提供从 `sn_list.txt` 的迁移脚本或首启导入。
+- **谁可以手改文件**  
+  - **服务模式**（`agm_server`，含 Docker/NAS）与 **客户端模式**（`agm_desktop`）：**不将「人工直接编辑」`config.toml` / `sn_list.toml` 作为支持路径**。配置与清单仅通过 **`agm-webui`**（HTTP 或 Tauri `invoke` 触发的同一套 API）由**程序读写**；磁盘上的 TOML 视为持久化存储，避免与 UI 保存并发手改、格式回写不一致等问题。  
+  - **`agm_cli`**：面向脚本与无 GUI 场景，**可**继续支持手改上述 TOML 和/或专用子命令维护（实现阶段细化），与「仅 UI 管理」的服务/桌面模式区分。
 
 ### 6.2 环境变量（对照原版）
 
