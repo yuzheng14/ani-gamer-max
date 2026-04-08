@@ -12,7 +12,7 @@
 
 | 名称 | 形态 | 职责 |
 |------|------|------|
-| **agm_core** | Rust library | 核心能力：配置读写与校验、与站点/API 交互、下载与转封装管线、日志与错误类型等。不绑定任何 UI 或具体传输协议。 |
+| **agm_core** | Rust library | 核心业务与 **API 契约**（DTO、统一错误）、**Axum/Tauri 共用的 handler**、配置、下载管线等；不绑定 WebView/GUI。`agm_server` / `agm_desktop` 只做薄适配。 |
 | **agm_cli** | Rust binary | 面向脚本、自动化、无 GUI 环境（含 AI 工具链调用）的 CLI；解析参数后调用 `agm_core`。 |
 | **agm_server** | Rust binary | 基于 **Axum** 的 HTTP 服务；路由处理器调用 `agm_core`；对 `agm-webui` 构建产物提供 **static** 托管；可整体容器化部署。 |
 | **agm_desktop** | Tauri 应用 | 桌面客户端：系统托盘、本地文件选择、单实例等桌面能力；通过 Tauri 命令（及必要时事件）调用 `agm_core` 或与本地逻辑协作。 |
@@ -28,7 +28,7 @@ agm_server ──→ agm_core ←── agm_cli
             agm_desktop（Tauri + 少量宿主逻辑）
 ```
 
-`agm_desktop` 与 `agm_server` 不互相依赖；二者都只依赖 `agm_core`（及各自最小宿主代码）。
+`agm_desktop` 与 `agm_server` 不互相依赖；二者都只依赖 `agm_core`（及各自最小宿主代码）。**共通类型、API 契约与可复用的 handler 逻辑**放在 `agm_core`（必要时再拆 workspace 成员 crate），使 `agm_server` 与 `agm_desktop` 尽可能薄。
 
 ## 3. 技术栈建议
 
@@ -43,12 +43,13 @@ agm_server ──→ agm_core ←── agm_cli
 
 ### 3.2 前端（agm-webui）
 
-- 具体框架（如 Vue / React / Svelte）待定；选型以 **Tauri 与静态部署兼容性**、团队熟悉度为准。
-- **API 客户端**：建议由同一份 OpenAPI/类型定义生成或手写共享 client，对 `agm_server` 的 `fetch` 与 Tauri 侧调用统一抽象（例如统一走 HTTP 到本机 loopback，或 Tauri 下走 `invoke` 但 DTO 与 REST 一致——见下节）。
+- **栈**：**React** + **TanStack Router** + **Vite** + **Tailwind CSS** + **TypeScript**。
+- **组件库**：优先 **shadcn/ui**（与 Tailwind 搭配，可复制到项目内的组件源码模式）。
+- **API 客户端**：**不采用桌面端 loopback HTTP**。部署在浏览器 / NAS / Docker 时，前端对 `agm_server` 使用常规 **HTTP（`fetch` 等）**；在 **Tauri** 内使用 **`invoke`** 调用 Rust 命令（见 §4.3 模式 B）。两侧共享 **OpenAPI 生成的 TypeScript 类型**（及可选生成的 client），保证请求/响应形状与错误结构与 REST 一致，仅传输层不同。
 
 ### 3.3 桌面（agm_desktop）
 
-- **Tauri 2.x**（或团队锁定的主版本）：Rust 侧实现 command handler，内部调用 `agm_core`。
+- **Tauri**：使用当前 **最新的 2.x** 主版本系列；Rust 侧以 **command handler** 为主，内部委托 `agm_core`（保持 crate 薄）。
 - 权限与打包策略按平台要求配置（自动更新、文件访问等可在后续迭代细化）。
 
 ### 3.4 容器与部署（agm_server + agm-webui）
@@ -60,28 +61,27 @@ agm_server ──→ agm_core ←── agm_cli
 
 ### 4.1 为什么要一致
 
-`agm-webui` 在浏览器中主要访问 `agm_server`；在 Tauri 中若希望少写分支，应让**数据形状与错误结构**与 HTTP API 对齐，这样同一套前端逻辑只需切换「传输方式」（HTTP vs `invoke`）。
+`agm-webui` 在浏览器 / Docker 中通过 **HTTP** 访问 `agm_server`；在 Tauri 中通过 **`invoke`** 调用 Rust。二者应共享**数据形状与错误结构**（由 OpenAPI/生成类型与 `agm_core` 类型保证一致），前端以适配层切换「HTTP `fetch` vs `invoke`」，避免两套业务契约。
 
-### 4.2 推荐做法
+### 4.2 已定做法
 
-1. **共享 DTO crate（可选但推荐）**  
-   例如 `agm_api_types`（或放在 `agm_core` 的 `api` 模块中），定义请求/响应结构体 + 文档注释；`agm_server` 的 handler 与 `agm_desktop` 的 Tauri command 入参出参**直接使用相同类型**。
+1. **契约与 DTO 集中在 `agm_core`**  
+   请求/响应结构体、统一错误类型、以及 **Axum 与 Tauri 共用的业务 handler**（例如 `fn handle_x(req) -> Result<Res, E>`）均放在 `agm_core`（可按需再拆 workspace 内子 crate，但**不**把「厚逻辑」留在 `agm_server` / `agm_desktop`）。`agm_server` 与 `agm_desktop` 仅负责：路由/command 注册、JSON 解包与打包、HTTP 状态码映射等薄适配层。
 
-2. **REST 资源与命令一一对应**  
-   每个 Tauri command 尽量对应一条 REST 路由（同路径语义、同 JSON body），命名上可建立简单对照表（在实现阶段用代码或注释维护）。
+2. **REST 资源与 Tauri command 一一对应**  
+   每个 Tauri command 对应一条 REST 路由（同语义、同 JSON body）；可用对照表或命名约定在代码中维护。
 
 3. **错误模型统一**  
-   例如统一包含：`code`（机器可读）、`message`（人类可读）、可选 `details`；HTTP 用 4xx/5xx + JSON body；Tauri 返回 `Result<T, ApiError>` 序列化同一结构。
+   例如统一包含：`code`（机器可读）、`message`（人类可读）、可选 `details`；HTTP 使用 4xx/5xx + JSON body；Tauri 返回 `Result<T, ApiError>` 并序列化为**同一结构**，便于前端共用类型与处理分支。
 
-4. **OpenAPI（可选）**  
-   从 `agm_server` 生成 OpenAPI 规范，前端与第三方集成共用；Tauri 边界若与 OpenAPI 模型一致，可减少手写重复。
+4. **OpenAPI 与首版代码生成**  
+   **首版即引入**：从 `agm_server`（或与 `agm_core` 共享的路由描述）产出 **OpenAPI**，并 **生成 TypeScript 类型**（及按需生成 fetch client），供 `agm-webui` 在 HTTP 场景使用；Tauri `invoke` 的 payload 形状与该规范保持一致，避免两套手写模型。
 
-### 4.3 Tauri 下两种集成模式（实现时二选一或并存）
+### 4.3 桌面集成模式（已定）
 
-- **模式 A — 本地 HTTP**：桌面壳内仍起小型 loopback HTTP（或复用嵌入式 server），`agm-webui` 始终用 `fetch`，与 NAS 部署完全一致；Tauri 主要负责窗口与系统能力。  
-- **模式 B — 直接 invoke**：前端用 `@tauri-apps/api` `invoke`，Rust 侧 command 与 Axum handler **共用同一套 handler 函数**（例如 `agm_core` 提供 `fn handle_x(req) -> Result<Res, E>`，Axum 与 Tauri 只做 JSON 解包/打包）。  
+- **模式 B — `invoke`**：前端使用 `@tauri-apps/api` 的 **`invoke`**；Rust 侧 Tauri command 与 Axum 路由调用 **`agm_core` 中同一套 handler**，不在桌面端另起 HTTP 服务、**不**依赖本机 loopback 访问 API。
 
-模式 B 更省端口与 CORS 心智负担；模式 A 调试浏览器时与生产 NAS 行为最接近。架构上两种都满足「契约一致」目标。
+浏览器 / 服务器场景仍直接请求 `agm_server` 的 HTTP API；与桌面共享的是 **契约与类型**，不是「桌面也走 HTTP」。
 
 ## 5. agm-webui 的双用途构建
 
@@ -92,8 +92,8 @@ agm_server ──→ agm_core ←── agm_cli
 
 注意：
 
-- **环境变量**：API 基地址在「浏览器访问远程 server」与「Tauri 内嵌」下可能不同，通过构建时注入或运行时配置（例如 `agm_server` 同源相对路径 `/api`）统一为一条策略。
-- **路由**：若使用前端 history 路由，Axum 侧需对非文件路径回退到 `index.html`（SPA fallback）。
+- **API 基地址**：仅在 **非 Tauri** 的 HTTP 场景需要配置（如远程 NAS、Docker 暴露的 origin）；Tauri 下走 `invoke`，不配置 loopback URL。HTTP 场景可用构建时注入或同源相对路径（如 `/api`）。
+- **路由**：TanStack Router 若使用 history 模式，Axum 托管静态站时需对非文件路径回退到 `index.html`（SPA fallback）。
 
 ## 6. 与现有 Python 原版的关系
 
@@ -102,11 +102,10 @@ agm_server ──→ agm_core ←── agm_cli
 
 ## 7. 待决事项（后续讨论）
 
-- 前端框架与组件库的最终选择。
-- 是否在首版就引入 OpenAPI 代码生成。
-- 认证：仅本机 loopback 是否需要 token；Docker 暴露公网时的鉴权方案。
 - 与原版配置文件路径、环境变量名的兼容策略。
+
+**认证**：当前阶段**不考虑**鉴权（含 loopback token、Docker 公网暴露等）；若未来暴露不可信网络，再单独设计认证与传输安全。
 
 ---
 
-*文档状态：讨论稿 — 随实现迭代更新。*
+*文档状态：讨论稿（已补充多项已定选型）— 随实现迭代更新。*
