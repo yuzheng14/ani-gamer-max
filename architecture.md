@@ -40,7 +40,7 @@ agm_server ──→ agm_core ←── agm_cli
   - **边界 crate**：`agm_cli` / `agm_server` / `agm_desktop`（Tauri）均为薄封装，见 §2、§4.2。
 
 - **异步与并发**
-  - **运行时**：**`tokio`**（`full` 或按需 features），作为 `axum`、`reqwest` 等与 `agm_core` 异步 API 的底座。
+  - **运行时**：**`tokio`**（`full` 或按需 features），作为 `axum`、站点 HTTP 客户端等与 `agm_core` 异步 API 的底座。
   - **同步热点**：解析、纯计算可留在 async 上下文内或按需 `spawn_blocking`，避免阻塞 worker（实现阶段调优）。
 
 - **HTTP 服务端（`agm_server`）**
@@ -48,9 +48,12 @@ agm_server ──→ agm_core ←── agm_cli
   - **静态资源**：**`tower-http`** 的 `ServeDir`、以及 SPA **fallback**（非 API 路径回退 `index.html`）。
   - **中间件**：按需 `TraceLayer`、请求体限制、CORS（若未来跨域部署）；当前无认证，不引入 session/JWT 栈。
 
-- **HTTP 客户端（`agm_core` 访问站点/API）**
-  - **推荐**：**`reqwest`**（async，默认启用 **rustls** 路线以避免系统 OpenSSL 依赖，具体 feature 在实现时写入 `Cargo.toml`）。
-  - **代理**：遵循系统或配置中的代理设置（与原版 `HTTP(S)_PROXY` 行为对齐的需求在实现阶段落地）。
+- **HTTP 客户端（`agm_core` 访问 ani.gamer 等站点）**
+  - **与原版对齐**：Python 版在 `original/Anime.py` 中使用 **`pyhttpx.HttpSession(browser_type='firefox'|'chrome')`**，在部分请求路径上走 **浏览器式 TLS / HTTP2 指纹**（JA3 等），以降低被站点或 CDN 侧启发式拦截的概率；普通 **`reqwest`**（尤其默认 **`rustls`**）栈的握手与 ALPN/HTTP2 设置与真实浏览器不一致，**不能等价替代** 上述行为。
+  - **推荐（访问目标站点）**：**`rquest`**（由早期的 `reqwest-impersonate` 一脉发展而来，crates.io 上的 **`rquest`**）—— API 与 **`reqwest`** 相近的异步客户端，强调 **TLS / JA3（及 HTTP2 等）指纹模拟**、预置 Chrome / Firefox 等 profile，与「用 pyhttpx 模拟浏览器」的目的一致。**实现阶段以 `rquest` 作为访问 Bahamut 相关域名的默认 HTTP 客户端**，并与配置里的 UA（如沿用「firefox/chrome」分支语义）选择 profile。
+  - **备选 / 对照**：生态中还有 **`wreq`** 等侧重指纹与 HTTP/1 细节的客户端，若 `rquest` 在特定环境构建或行为上不满足再评估；**纯 `reqwest`** 仍可用于**不敏感**的出站请求（如健康检查、非风控 URL），以免把 BoringSSL 构建绑到整条链路。
+  - **权衡**：`rquest` 类库通常依赖 **BoringSSL**（或等价）路径，**编译时间、跨平台构建与许可证**与「纯 rustls + reqwest」不同；CI 与 Docker 镜像需预留相应依赖或缓存。
+  - **代理**：遵循配置与标准代理环境变量（与原版对 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` 的用法对齐的需求在实现阶段落地）。
 
 - **序列化与 API 边界**
   - **`serde`** + **`serde_json`**：REST 与 Tauri `invoke` 的 JSON 形状与 `agm_core` DTO 一致。
