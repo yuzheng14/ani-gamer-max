@@ -35,7 +35,8 @@ agm_server ──→ agm_core ←── agm_cli
 ### 3.1 Rust 侧（已定框架 + 推荐 crate）
 
 - **语言与工程**
-  - **Edition**：以 **`Rust 2021`** 为基线（或随首次锁定的 `rust-toolchain` 升到 `2024`，全 workspace 统一）。
+  - **工具链**：使用 **Rust stable `1.94.1`**，在仓库根通过 **`rust-toolchain.toml`**（或同等机制）固定，**全 workspace 统一**；升级版本时显式改文件并全仓验证。
+  - **Edition**：**`2024`**（与 `1.94.1` 稳定版匹配）。
   - **Workspace**：单 repo 下 Cargo workspace 管理 `agm_core`、`agm_cli`、`agm_server` 与 Tauri 的 `src-tauri`（`agm_desktop`）；共享 `[workspace.dependencies]` 统一版本。
   - **边界 crate**：`agm_cli` / `agm_server` / `agm_desktop`（Tauri）均为薄封装，见 §2、§4.2。
 
@@ -77,8 +78,9 @@ agm_server ──→ agm_core ←── agm_cli
 - **HTML / 文本解析（`agm_core`）**
   - 具体 crate（如 **`scraper`**、**`select`** 等）按 ani.gamer 页面结构在实现时选定；原则是与 async 下载管线分离、可单测。
 
-- **媒体与外部进程**
-  - 与原版一致：依赖 **`ffmpeg` 在 PATH**；Rust 侧用 **`tokio::process`**（或 `std::process` 在阻塞任务中）调用，参数构造在 `agm_core` 集中管理。
+- **媒体（封装 / 转码）**
+  - 使用 **`ffmpeg-next`**（及随其引入的 **`ffmpeg-sys-next`** 等）通过 **libav** API 在 Rust 内完成与原版 Python 中 `ffmpeg` 子进程相当的能力；具体 feature（静态链接、绑定版本等）与 **CI / Docker 基础镜像中的 FFmpeg 开发包**在实现阶段按 crate 文档定稿。
+  - 原版依赖 **`ffmpeg` 可执行文件在 PATH**；Rust 版以 **库绑定** 为主路径，**不**再以「默认仅 `tokio::process` 调 CLI」作为主线（若个别场景仍适合子进程封装，可在 `agm_core` 内局部保留）。
 
 - **Tauri（`agm_desktop`）**
   - **Tauri 2.x** 当前稳定系列；Rust 侧 **`tauri`**、`tauri-plugin-*` 按需引入；业务仍经 `agm_core`，见 §3.3。
