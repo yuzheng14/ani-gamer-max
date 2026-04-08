@@ -50,9 +50,10 @@ agm_server ──→ agm_core ←── agm_cli
 
 - **HTTP 客户端（`agm_core` 访问 ani.gamer 等站点）**
   - **与原版对齐**：Python 版在 `original/Anime.py` 中使用 **`pyhttpx.HttpSession(browser_type='firefox'|'chrome')`**，在部分请求路径上走 **浏览器式 TLS / HTTP2 指纹**（JA3 等），以降低被站点或 CDN 侧启发式拦截的概率；普通 **`reqwest`**（尤其默认 **`rustls`**）栈的握手与 ALPN/HTTP2 设置与真实浏览器不一致，**不能等价替代** 上述行为。
-  - **推荐（访问目标站点）**：**`rquest`**（由早期的 `reqwest-impersonate` 一脉发展而来，crates.io 上的 **`rquest`**）—— API 与 **`reqwest`** 相近的异步客户端，强调 **TLS / JA3（及 HTTP2 等）指纹模拟**、预置 Chrome / Firefox 等 profile，与「用 pyhttpx 模拟浏览器」的目的一致。**实现阶段以 `rquest` 作为访问 Bahamut 相关域名的默认 HTTP 客户端**，并与配置里的 UA（如沿用「firefox/chrome」分支语义）选择 profile。
-  - **备选 / 对照**：生态中还有 **`wreq`** 等侧重指纹与 HTTP/1 细节的客户端，若 `rquest` 在特定环境构建或行为上不满足再评估；**纯 `reqwest`** 仍可用于**不敏感**的出站请求（如健康检查、非风控 URL），以免把 BoringSSL 构建绑到整条链路。
-  - **权衡**：`rquest` 类库通常依赖 **BoringSSL**（或等价）路径，**编译时间、跨平台构建与许可证**与「纯 rustls + reqwest」不同；CI 与 Docker 镜像需预留相应依赖或缓存。
+  - **推荐（访问目标站点）**：**`wreq`**（GitHub: `0x676e67/wreq`；crates.io: **`wreq`**）—— 面向 **TLS / HTTP2 指纹与浏览器模拟** 的异步 HTTP 客户端，配套 **`wreq-util`** 维护大量设备/浏览器 profile；API 形态与 **`reqwest`** 接近，与「用 `pyhttpx` 模拟 Chrome/Firefox」的目的一致。**实现阶段以 `wreq` 作为访问 Bahamut 相关域名的默认 HTTP 客户端**，并与配置里的 UA（如沿用「firefox/chrome」分支语义）选择 profile。
+  - **名称沿革**：历史上同一路线曾以 **`reqwest-impersonate` / `rquest`** 等名称发布；当前主力维护与命名以 **`wreq`** 为准（若文档或讨论仍出现 `rquest`，一般指同一类「指纹客户端」能力）。
+  - **备选**：**纯 `reqwest`** 仍可用于**不敏感**的出站请求（如健康检查、非风控 URL），以免把 BoringSSL 构建绑到整条链路；若 `wreq` 在特定目标或版本上不足，再评估其它指纹客户端。
+  - **权衡**：`wreq` 通常依赖 **BoringSSL**（或等价）路径，**编译时间、跨平台构建与许可证**与「纯 rustls + reqwest」不同；CI 与 Docker 镜像需预留相应依赖或缓存。
   - **代理**：遵循配置与标准代理环境变量（与原版对 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` 的用法对齐的需求在实现阶段落地）。
 
 - **序列化与 API 边界**
