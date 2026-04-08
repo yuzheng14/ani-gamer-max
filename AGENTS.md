@@ -4,14 +4,17 @@
 
 ### Project Overview
 
-aniGamerPlus is a Python 3 application for automated anime downloading from Bahamut Anime Crazy (ani.gamer.com.tw). It consists of:
-- Main daemon (`aniGamerPlus.py`) — auto-download mode + CLI mode
-- Flask Web Dashboard (`Dashboard/Server.py`) on port 5000
-- Core modules: `Config.py`, `Anime.py`, `Danmu.py`, `ColorPrint.py`
+aniGamerPlus is a Python 3 application for automated anime downloading from Bahamut Anime Crazy (ani.gamer.com.tw). The original Python code has been moved to the `original/` directory to prepare for a Rust + modern frontend rewrite.
 
-### Running the Application
+Original code structure in `original/`:
+- Main daemon (`original/aniGamerPlus.py`) — auto-download mode + CLI mode
+- Flask Web Dashboard (`original/Dashboard/Server.py`) on port 5000
+- Core modules: `original/Config.py`, `original/Anime.py`, `original/Danmu.py`, `original/ColorPrint.py`
+
+### Running the Original Application
 
 ```bash
+cd original
 # Auto-download mode with Dashboard (default)
 python3 aniGamerPlus.py
 
@@ -20,8 +23,8 @@ python3 aniGamerPlus.py -s <sn> -m single
 ```
 
 Prerequisites before first run:
-- Copy `config-sample.json` to `config.json` (auto-created if missing)
-- Copy `sn_list-sample.txt` to `sn_list.txt` (optional, for auto mode)
+- Copy `original/config-sample.json` to `original/config.json` (auto-created if missing)
+- Copy `original/sn_list-sample.txt` to `original/sn_list.txt` (optional, for auto mode)
 - ffmpeg must be in PATH (pre-installed in this environment)
 
 ### Important Caveats
