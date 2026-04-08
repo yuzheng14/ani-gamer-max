@@ -32,15 +32,55 @@ agm_server ──→ agm_core ←── agm_cli
 
 ## 3. 技术栈建议
 
-### 3.1 Rust 侧
+### 3.1 Rust 侧（已定框架 + 推荐 crate）
 
-- **Workspace**：单 repo 下用 Cargo workspace 管理 `agm_core`、`agm_cli`、`agm_server`、`agm_desktop` 的宿主 crate（Tauri 侧通常仍有 `src-tauri` crate），便于共享版本与内部 crate 依赖。
-- **边界 crate（`agm_cli` / `agm_server` / `agm_desktop`）**：统一视为**薄封装**，不承载业务分支；差异仅在于入口形态（终端参数、HTTP、Tauri command）与对外呈现（文本/JSON/序列化错误）。
-- **异步运行时**：`tokio`（与 Axum、多数 HTTP/客户端生态一致）。
-- **序列化**：`serde` + `serde_json`；HTTP 与 Tauri 命令边界统一使用 JSON 友好类型，便于前后端与双边界对齐。
-- **HTTP**：`axum` + `tower` 生态；静态文件可用 `tower-http::services::ServeDir` 或等价方案。
-- **配置**：`agm_core` 内集中定义 **`config.toml` / `sn_list.toml`** 的结构、默认值与迁移策略（可与原版 Python `Config` 版本升级思路对齐）。
-- **错误**：在 `agm_core` 定义统一错误类型（或分层错误），在 CLI 中格式化输出，在 HTTP 中映射为状态码 + 结构化 body，在 Tauri 中映射为可序列化的错误载荷。
+- **语言与工程**
+  - **Edition**：以 **`Rust 2021`** 为基线（或随首次锁定的 `rust-toolchain` 升到 `2024`，全 workspace 统一）。
+  - **Workspace**：单 repo 下 Cargo workspace 管理 `agm_core`、`agm_cli`、`agm_server` 与 Tauri 的 `src-tauri`（`agm_desktop`）；共享 `[workspace.dependencies]` 统一版本。
+  - **边界 crate**：`agm_cli` / `agm_server` / `agm_desktop`（Tauri）均为薄封装，见 §2、§4.2。
+
+- **异步与并发**
+  - **运行时**：**`tokio`**（`full` 或按需 features），作为 `axum`、`reqwest` 等与 `agm_core` 异步 API 的底座。
+  - **同步热点**：解析、纯计算可留在 async 上下文内或按需 `spawn_blocking`，避免阻塞 worker（实现阶段调优）。
+
+- **HTTP 服务端（`agm_server`）**
+  - **框架**：**`axum`**（与 **`tower`**、`tower-http` 组合）。
+  - **静态资源**：**`tower-http`** 的 `ServeDir`、以及 SPA **fallback**（非 API 路径回退 `index.html`）。
+  - **中间件**：按需 `TraceLayer`、请求体限制、CORS（若未来跨域部署）；当前无认证，不引入 session/JWT 栈。
+
+- **HTTP 客户端（`agm_core` 访问站点/API）**
+  - **推荐**：**`reqwest`**（async，默认启用 **rustls** 路线以避免系统 OpenSSL 依赖，具体 feature 在实现时写入 `Cargo.toml`）。
+  - **代理**：遵循系统或配置中的代理设置（与原版 `HTTP(S)_PROXY` 行为对齐的需求在实现阶段落地）。
+
+- **序列化与 API 边界**
+  - **`serde`** + **`serde_json`**：REST 与 Tauri `invoke` 的 JSON 形状与 `agm_core` DTO 一致。
+  - **OpenAPI**：**`utoipa`**（及与 Axum 的集成 crate，如 **`utoipa-axum`**）在 `agm_server` 侧**注解路由与类型**，导出 OpenAPI JSON/YAML，供 **`openapi-typescript`（或同类）** 生成前端 TS 类型；`agm_core` 中的类型为单一来源，handler 签名直接复用。
+
+- **配置与持久化（`agm_core`）**
+  - **读写 `config.toml` / `sn_list.toml`**：**`serde` + `toml`** 做序列化/反序列化；**程序回写**（服务/桌面经 UI）采用整文件写入时在实现阶段保证原子写（临时文件 + `rename`）。
+  - **可选**：**`toml_edit`** 用于 **`agm_cli` 场景**下若需尽量保留注释与键序（与 §6.1「CLI 可手改」一致）；服务/桌面以 UI 为唯一入口时可不依赖。
+
+- **CLI（`agm_cli`）**
+  - **参数**：**`clap`**（derive 子命令），输出人类可读错误时消费 `agm_core` 的 `thiserror` 类型。
+
+- **错误处理**
+  - **`agm_core`**：**`thiserror`** 导出可序列化、可映射 HTTP 的枚举/结构。
+  - **各 binary / Tauri**：边界处可用 **`anyhow`** 收口未预期错误；对外仍转换为统一的 API 错误 DTO。
+
+- **日志与诊断**
+  - **`tracing`** + **`tracing-subscriber`**（含 `env-filter`），结构化日志便于 Docker/桌面排错；日志级别与输出格式由 `config.toml` 或环境约定（实现阶段定）。
+
+- **HTML / 文本解析（`agm_core`）**
+  - 具体 crate（如 **`scraper`**、**`select`** 等）按 ani.gamer 页面结构在实现时选定；原则是与 async 下载管线分离、可单测。
+
+- **媒体与外部进程**
+  - 与原版一致：依赖 **`ffmpeg` 在 PATH**；Rust 侧用 **`tokio::process`**（或 `std::process` 在阻塞任务中）调用，参数构造在 `agm_core` 集中管理。
+
+- **Tauri（`agm_desktop`）**
+  - **Tauri 2.x** 当前稳定系列；Rust 侧 **`tauri`**、`tauri-plugin-*` 按需引入；业务仍经 `agm_core`，见 §3.3。
+
+- **测试**
+  - **`cargo test`** + 单元测试优先覆盖 `agm_core`；HTTP 层可用 **`tower::ServiceExt::oneshot`** 或 **`axum-test`**（或同类）做集成测；网络相关用录制 fixture / mock server（实现阶段定）。
 
 ### 3.2 前端（agm-webui）
 
