@@ -5,15 +5,15 @@
 ## 1. 目标与原则
 
 - **单一事实来源**：下载、解析、配置、任务编排等核心业务逻辑只实现在 `agm_core` 中；CLI、HTTP、桌面壳均通过薄封装调用核心，避免在边界层复制业务规则。
-- **边界 API 一致**：`agm_desktop`（Tauri 命令/事件）与 `agm_server`（HTTP 接口）对外的**入参、出参、错误语义**尽可能对齐，降低「同一功能两套契约」的维护成本。
+- **边界 API 一致**：`agm_desktop`（Tauri 命令/事件）与 `agm_server`（HTTP 接口）对外的**入参、出参、错误语义**尽可能对齐，降低「同一功能两套契约」的维护成本；`agm_cli` 在对应子命令上复用 **`agm_core` 同一套入口与错误语义**，仅将结果格式化为终端输出与退出码。
 - **前端一份代码，两处交付**：`agm-webui` 既作为 Axum 静态资源（浏览器 / NAS / 服务器 Docker），也作为 Tauri 内嵌 WebView 的前端，避免维护两套 UI。
 
 ## 2. 组件（crate / 包）划分
 
 | 名称 | 形态 | 职责 |
 |------|------|------|
-| **agm_core** | Rust library | 核心业务与 **API 契约**（DTO、统一错误）、**Axum/Tauri 共用的 handler**、配置、下载管线等；不绑定 WebView/GUI。`agm_server` / `agm_desktop` 只做薄适配。 |
-| **agm_cli** | Rust binary | 面向脚本、自动化、无 GUI 环境（含 AI 工具链调用）的 CLI；解析参数后调用 `agm_core`。 |
+| **agm_core** | Rust library | 核心业务与 **API 契约**（DTO、统一错误）、**各边界共用的 handler**（HTTP / Tauri / CLI 均调用此处）、配置、下载管线等；不绑定 WebView/GUI。`agm_cli` / `agm_server` / `agm_desktop` 只做薄适配。 |
+| **agm_cli** | Rust binary | 面向脚本、自动化、无 GUI 环境（含 AI 工具链调用）；**薄适配**：子命令与参数解析（如 `clap`）、终端输出与退出码，业务一律委托 `agm_core`。 |
 | **agm_server** | Rust binary | 基于 **Axum** 的 HTTP 服务；路由处理器调用 `agm_core`；对 `agm-webui` 构建产物提供 **static** 托管；可整体容器化部署。 |
 | **agm_desktop** | Tauri 应用 | 桌面客户端：系统托盘、本地文件选择、单实例等桌面能力；通过 Tauri 命令（及必要时事件）调用 `agm_core` 或与本地逻辑协作。 |
 | **agm-webui** | 前端工程（独立仓库或 workspace 子目录均可） | SPA：任务列表、配置、日志等；**同一套构建**既可复制到 `agm_server` 的静态目录，也可由 Tauri 加载为内嵌前端。 |
@@ -28,13 +28,14 @@ agm_server ──→ agm_core ←── agm_cli
             agm_desktop（Tauri + 少量宿主逻辑）
 ```
 
-`agm_desktop` 与 `agm_server` 不互相依赖；二者都只依赖 `agm_core`（及各自最小宿主代码）。**共通类型、API 契约与可复用的 handler 逻辑**放在 `agm_core`（必要时再拆 workspace 成员 crate），使 `agm_server` 与 `agm_desktop` 尽可能薄。
+`agm_cli`、`agm_desktop` 与 `agm_server` **互不依赖**；三者都只依赖 `agm_core`（及各自最小宿主代码）。**共通类型、API 契约与可复用的 handler 逻辑**放在 `agm_core`（必要时再拆 workspace 成员 crate），使 `agm_cli`、`agm_server` 与 `agm_desktop` 尽可能薄。
 
 ## 3. 技术栈建议
 
 ### 3.1 Rust 侧
 
 - **Workspace**：单 repo 下用 Cargo workspace 管理 `agm_core`、`agm_cli`、`agm_server`、`agm_desktop` 的宿主 crate（Tauri 侧通常仍有 `src-tauri` crate），便于共享版本与内部 crate 依赖。
+- **边界 crate（`agm_cli` / `agm_server` / `agm_desktop`）**：统一视为**薄封装**，不承载业务分支；差异仅在于入口形态（终端参数、HTTP、Tauri command）与对外呈现（文本/JSON/序列化错误）。
 - **异步运行时**：`tokio`（与 Axum、多数 HTTP/客户端生态一致）。
 - **序列化**：`serde` + `serde_json`；HTTP 与 Tauri 命令边界统一使用 JSON 友好类型，便于前后端与双边界对齐。
 - **HTTP**：`axum` + `tower` 生态；静态文件可用 `tower-http::services::ServeDir` 或等价方案。
@@ -49,7 +50,7 @@ agm_server ──→ agm_core ←── agm_cli
 
 ### 3.3 桌面（agm_desktop）
 
-- **Tauri**：使用当前 **最新的 2.x** 主版本系列；Rust 侧以 **command handler** 为主，内部委托 `agm_core`（保持 crate 薄）。
+- **Tauri**：使用当前 **最新的 2.x** 主版本系列；Rust 侧以 **command handler** 为主，内部委托 `agm_core`，与 `agm_cli`、`agm_server` 同为薄边界。
 - 权限与打包策略按平台要求配置（自动更新、文件访问等可在后续迭代细化）。
 
 ### 3.4 容器与部署（agm_server + agm-webui）
@@ -66,7 +67,10 @@ agm_server ──→ agm_core ←── agm_cli
 ### 4.2 已定做法
 
 1. **契约与 DTO 集中在 `agm_core`**  
-   请求/响应结构体、统一错误类型、以及 **Axum 与 Tauri 共用的业务 handler**（例如 `fn handle_x(req) -> Result<Res, E>`）均放在 `agm_core`（可按需再拆 workspace 内子 crate，但**不**把「厚逻辑」留在 `agm_server` / `agm_desktop`）。`agm_server` 与 `agm_desktop` 仅负责：路由/command 注册、JSON 解包与打包、HTTP 状态码映射等薄适配层。
+   请求/响应结构体、统一错误类型，以及 **CLI / HTTP / Tauri 共用的业务 handler**（例如 `fn handle_x(req) -> Result<Res, E>`）均放在 `agm_core`（可按需再拆 workspace 内子 crate，但**不**把「厚逻辑」留在 `agm_cli` / `agm_server` / `agm_desktop`）。各边界 crate 仅负责薄适配：
+   - **`agm_cli`**：子命令与参数解析、人类可读输出、进程退出码。
+   - **`agm_server`**：路由注册、JSON 解包与打包、HTTP 状态码与静态资源托管。
+   - **`agm_desktop`**：Tauri command 注册、JSON 解包与打包、与窗口/系统集成相关能力。
 
 2. **REST 资源与 Tauri command 一一对应**  
    每个 Tauri command 对应一条 REST 路由（同语义、同 JSON body）；可用对照表或命名约定在代码中维护。
