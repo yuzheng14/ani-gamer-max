@@ -104,6 +104,20 @@ agm_server ──→ agm_core ←── agm_cli
 - **镜像**：多阶段构建——一阶段构建 `agm-webui`，一阶段构建 `agm_server` Rust binary，最终镜像包含 binary + 静态资源目录。
 - **运行**：单进程即可同时提供 API 与静态 UI；反向代理（可选）仅负责 TLS 与域名，不强制拆服务。
 
+### 3.5 国际化（i18n）（已定）
+
+- **官方语言**：**简体中文**、**繁体中文**、**英文**，语言标签采用 **`zh-Hans`**、**`zh-Hant`**、**`en`**（繁体用 `zh-Hant` 以地域中立；与 Bahamut 用语习惯可在文案层对齐）。
+- **社区扩展语种**：新增语言时增加一份 locale 资源文件（见下），在 **`supportedLocales`（或等价注册表）** 中登记即可；贡献流程在 `CONTRIBUTING` 中说明：**复制 `en` 为模板**、翻译 value、**保持 key 集合与官方语言一致**；CI 或脚本校验 **缺 key / 多余 key**。
+- **`agm-webui`**
+  - **资源格式**：按语言分文件，例如 `locales/zh-Hans.json`、`locales/zh-Hant.json`、`locales/en.json`；社区语种如 `locales/fr.json`。
+  - **技术选型**：**`i18next` + `react-i18next`** 或 **`Lingui`**（二选一，实现时锁定）；组件内使用 **稳定 string key**（如 `download.status.failed`），避免把可翻译文案硬编码在 TSX 中。
+  - **默认与持久化**：首次打开可用浏览器 **`Accept-Language`** 推断默认界面语言；用户选择写入 **`config.toml` 的 `locale` 字段**（见 §6.1），与服务/桌面模式一致。
+- **API / `agm_core` 与错误文案**
+  - 错误响应以 **稳定机器可读 `code`** 为主（必填）；**`message` 可为英文简短说明或开发与日志用**，**不**按请求语言在服务端渲染长文案。
+  - **用户可见说明**由前端（及 CLI，见下）根据 `code` + locale **查表翻译**；与 §4.2 错误模型一致，详见该节引用。
+- **`agm_cli`**
+  - 终端输出的人类可读字符串使用 **`rust-i18n` / Fluent / 或按 locale 加载 JSON** 等与实现复杂度匹配的方案；语言顺序建议：**`--locale` 参数** > **`config.toml` 的 `locale`** > **`LANG` 环境变量** > 默认 `en` 或 `zh-Hans`（实现时二选一再定）。
+
 ## 4. `agm_server` 与 `agm_desktop` 的契约一致性
 
 ### 4.1 为什么要一致
@@ -122,7 +136,7 @@ agm_server ──→ agm_core ←── agm_cli
    每个 Tauri command 对应一条 REST 路由（同语义、同 JSON body）；可用对照表或命名约定在代码中维护。
 
 3. **错误模型统一**  
-   例如统一包含：`code`（机器可读）、`message`（人类可读）、可选 `details`；HTTP 使用 4xx/5xx + JSON body；Tauri 返回 `Result<T, ApiError>` 并序列化为**同一结构**，便于前端共用类型与处理分支。
+   例如统一包含：`code`（机器可读、**供 i18n 查表**）、`message`（可选，建议英文或中性短文，便于日志与开发者）、可选 `details`；HTTP 使用 4xx/5xx + JSON body；Tauri 返回 `Result<T, ApiError>` 并序列化为**同一结构**，便于前端共用类型与处理分支。**面向终端用户的完整句式仅在各边界按 §3.5 做本地化**，避免 OpenAPI 契约随语言倍增。
 
 4. **OpenAPI 与首版代码生成**  
    **首版即引入**：从 `agm_server`（或与 `agm_core` 共享的路由描述）产出 **OpenAPI**，并 **生成 TypeScript 类型**（及按需生成 fetch client），供 `agm-webui` 在 HTTP 场景使用；Tauri `invoke` 的 payload 形状与该规范保持一致，避免两套手写模型。
@@ -153,6 +167,7 @@ agm_server ──→ agm_core ←── agm_cli
 ### 6.1 配置文件与清单（已定）
 
 - **主配置**：**`config.toml`**，替代原版 `config.json`。从旧版的字段映射或一次性导入工具可在实现阶段补充。
+- **界面语言**：**`locale`** 字段，取值为 **`zh-Hans`**、**`zh-Hant`**、**`en`** 之一（及未来在社区注册的其它 BCP 47 标签）；与 §3.5 一致，供 `agm-webui` / `agm_cli` 读取。
 - **追番清单**：**`sn_list.toml`**，替代原版 `sn_list.txt`；条目结构（如 `[[watch]]` 等）由 `agm_core` 定义。可提供从 `sn_list.txt` 的迁移脚本或首启导入。
 - **谁可以手改文件**  
   - **服务模式**（`agm_server`，含 Docker/NAS）与 **客户端模式**（`agm_desktop`）：**不将「人工直接编辑」`config.toml` / `sn_list.toml` 作为支持路径**。配置与清单仅通过 **`agm-webui`**（HTTP 或 Tauri `invoke` 触发的同一套 API）由**程序读写**；磁盘上的 TOML 视为持久化存储，避免与 UI 保存并发手改、格式回写不一致等问题。  
