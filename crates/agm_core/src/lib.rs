@@ -7,8 +7,10 @@ pub mod cookie;
 pub mod error;
 pub mod fs_atomic;
 pub mod handlers;
+pub mod site;
 pub mod watch_list;
 
 pub use config::AppConfig;
 pub use error::{ApiError, ApiErrorCode, CoreError, CoreResult};
+pub use site::{EpisodeMetadata, GamerSiteClient};
 pub use watch_list::{DownloadMode, SnListFile, WatchEntry};

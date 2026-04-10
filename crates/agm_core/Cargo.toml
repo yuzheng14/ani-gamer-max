@@ -11,3 +11,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 tokio.workspace = true
+wreq = { version = "6.0.0-rc.28", default-features = false, features = ["webpki-roots", "gzip", "json"] }
+wreq-util = "3.0.0-rc.10"
+regex.workspace = true
+scraper.workspace = true

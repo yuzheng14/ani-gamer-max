@@ -11,6 +11,8 @@ pub enum ApiErrorCode {
     NotFound,
     ConfigInvalid,
     Io,
+    /// Upstream HTTP status (ani.gamer / API).
+    UpstreamHttp,
     Internal,
 }
 
@@ -71,6 +73,18 @@ pub enum CoreError {
 
     #[error("{0}")]
     Message(String),
+
+    #[error("HTTP client error: {0}")]
+    HttpClient(String),
+
+    #[error("HTTP {status}: {detail}")]
+    HttpStatus { status: u16, detail: String },
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("no anime metadata for sn {0} (empty or invalid page)")]
+    EpisodeNotFound(u32),
 }
 
 impl CoreError {
@@ -98,6 +112,26 @@ impl CoreError {
             },
             CoreError::Message(_) => ApiError {
                 code: ApiErrorCode::InvalidInput,
+                message: Some(self.to_string()),
+                details: None,
+            },
+            CoreError::HttpClient(_) => ApiError {
+                code: ApiErrorCode::Internal,
+                message: Some(self.to_string()),
+                details: None,
+            },
+            CoreError::HttpStatus { .. } => ApiError {
+                code: ApiErrorCode::UpstreamHttp,
+                message: Some(self.to_string()),
+                details: None,
+            },
+            CoreError::Json(_) => ApiError {
+                code: ApiErrorCode::InvalidInput,
+                message: Some(self.to_string()),
+                details: None,
+            },
+            CoreError::EpisodeNotFound(_) => ApiError {
+                code: ApiErrorCode::NotFound,
                 message: Some(self.to_string()),
                 details: None,
             },
