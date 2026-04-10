@@ -1,0 +1,7 @@
+# boring-sys2 (wreq) links C++ code; use GCC's libstdc++ when the default `c++` is Clang without it.
+[env]
+CC = "gcc"
+CXX = "g++"
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-L", "/usr/lib/gcc/x86_64-linux-gnu/13"]
