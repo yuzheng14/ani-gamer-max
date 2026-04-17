@@ -24,7 +24,7 @@ pub enum DownloadResolution {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum DownloadMode {
     /// 仅下载最新一集
     #[default]
