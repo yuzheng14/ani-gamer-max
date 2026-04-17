@@ -1,32 +1,21 @@
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     time::SystemTime,
 };
 
 use tokio::fs;
 
 use crate::entity::{cookie::Cookies, error::Result};
+use crate::service::file_io;
 
 static DEFAULT_COOKIE_PATH: &str = "./data/cookie.txt";
 
 pub struct CookieService;
 
 impl CookieService {
-    fn resolve_path<P: AsRef<Path>>(path: Option<P>) -> PathBuf {
-        path.map(|p| p.as_ref().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_COOKIE_PATH))
-    }
-
-    async fn ensure_parent_dir_exists(path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        Ok(())
-    }
-
     /// 读取 cookie 文件。文件不存在或为空时返回空 Cookies。
     pub async fn read_cookies<P: AsRef<Path>>(path: Option<P>) -> Result<Cookies> {
-        let path = Self::resolve_path(path);
+        let path = file_io::resolve_path(path, DEFAULT_COOKIE_PATH);
 
         if !path.exists() || !path.is_file() {
             return Ok(Cookies::default());
@@ -40,19 +29,13 @@ impl CookieService {
 
     /// 写入 cookie 文件，使用临时文件 + rename 保证原子写。
     pub async fn write_cookies<P: AsRef<Path>>(cookies: &Cookies, path: Option<P>) -> Result<()> {
-        let path = Self::resolve_path(path);
-        Self::ensure_parent_dir_exists(&path).await?;
-
-        let tmp_path = path.with_extension("txt.tmp");
-        fs::write(&tmp_path, cookies.as_str()).await?;
-        fs::rename(&tmp_path, &path).await?;
-
-        Ok(())
+        let path = file_io::resolve_path(path, DEFAULT_COOKIE_PATH);
+        file_io::atomic_write(&path, cookies.as_str().as_bytes()).await
     }
 
     /// 将 cookie 文件重命名为 `invalid_cookie.txt`，避免继续使用失效的 cookie。
     pub async fn invalidate<P: AsRef<Path>>(path: Option<P>) -> Result<()> {
-        let path = Self::resolve_path(path);
+        let path = file_io::resolve_path(path, DEFAULT_COOKIE_PATH);
 
         if !path.exists() {
             return Ok(());
@@ -69,7 +52,7 @@ impl CookieService {
 
     /// 返回 cookie 文件的最后修改时间。
     pub async fn last_modified<P: AsRef<Path>>(path: Option<P>) -> Result<SystemTime> {
-        let path = Self::resolve_path(path);
+        let path = file_io::resolve_path(path, DEFAULT_COOKIE_PATH);
         let metadata = fs::metadata(&path).await?;
         Ok(metadata.modified()?)
     }

@@ -1,51 +1,26 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tokio::fs;
 
 use crate::entity::error::Result;
-use crate::entity::{error::AgmCoreError, sn_list::SnList};
+use crate::entity::sn_list::SnList;
+use crate::service::file_io;
 
 static DEFAULT_SN_LIST_PATH: &str = "./data/sn_list.toml";
 
 pub struct SnListService;
 
 impl SnListService {
-    fn resolve_path<P: AsRef<Path>>(path: Option<P>) -> PathBuf {
-        path.map(|p| p.as_ref().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_SN_LIST_PATH))
-    }
-
-    async fn ensure_parent_dir_exists(path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        Ok(())
-    }
-
     /// 写入追番清单，使用临时文件 + rename 保证原子写。
     pub async fn write_sn_list<P: AsRef<Path>>(sn_list: &SnList, path: Option<P>) -> Result<()> {
-        let path = Self::resolve_path(path);
-        Self::ensure_parent_dir_exists(&path).await?;
-
+        let path = file_io::resolve_path(path, DEFAULT_SN_LIST_PATH);
         let serialized = toml::to_string_pretty(sn_list)?;
-
-        let tmp_path = path.with_extension("toml.tmp");
-        fs::write(&tmp_path, &serialized).await?;
-        fs::rename(&tmp_path, &path).await.map_err(|e| {
-            AgmCoreError::Custom(format!(
-                "sn_list 原子写入失败 ({} -> {}): {}",
-                tmp_path.display(),
-                path.display(),
-                e
-            ))
-        })?;
-
-        Ok(())
+        file_io::atomic_write(&path, serialized.as_bytes()).await
     }
 
     /// 读取追番清单。文件不存在时，创建空清单文件。
     pub async fn read_sn_list<P: AsRef<Path>>(path: Option<P>) -> Result<SnList> {
-        let path = Self::resolve_path(path);
+        let path = file_io::resolve_path(path, DEFAULT_SN_LIST_PATH);
 
         if !path.exists() || !path.is_file() {
             let sn_list = SnList::default();

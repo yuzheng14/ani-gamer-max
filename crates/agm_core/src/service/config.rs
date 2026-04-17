@@ -1,53 +1,26 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tokio::fs;
 
 use crate::entity::error::Result;
-use crate::entity::{config::Config, error::AgmCoreError};
+use crate::entity::config::Config;
+use crate::service::file_io;
 
 static DEFAULT_CONFIG_PATH: &str = "./data/config.toml";
 
 pub struct ConfigService;
 
 impl ConfigService {
-    fn resolve_path<P: AsRef<Path>>(config_path: Option<P>) -> PathBuf {
-        config_path
-            .map(|p| p.as_ref().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH))
-    }
-
-    async fn ensure_parent_dir_exists(path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        Ok(())
-    }
-
     /// 写入配置文件，使用临时文件 + rename 保证原子写。
     pub async fn write_config<P: AsRef<Path>>(config: &Config, config_path: Option<P>) -> Result<()> {
-        let path = Self::resolve_path(config_path);
-        Self::ensure_parent_dir_exists(&path).await?;
-
+        let path = file_io::resolve_path(config_path, DEFAULT_CONFIG_PATH);
         let serialized = toml::to_string_pretty(config)?;
-
-        // Write to a sibling temp file then atomically rename.
-        let tmp_path = path.with_extension("toml.tmp");
-        fs::write(&tmp_path, &serialized).await?;
-        fs::rename(&tmp_path, &path).await.map_err(|e| {
-            AgmCoreError::Custom(format!(
-                "配置文件原子写入失败 ({} -> {}): {}",
-                tmp_path.display(),
-                path.display(),
-                e
-            ))
-        })?;
-
-        Ok(())
+        file_io::atomic_write(&path, serialized.as_bytes()).await
     }
 
     /// 读取配置文件。配置文件不存在时，则创建默认配置文件。
     pub async fn read_config<P: AsRef<Path>>(config_path: Option<P>) -> Result<Config> {
-        let path = Self::resolve_path(config_path);
+        let path = file_io::resolve_path(config_path, DEFAULT_CONFIG_PATH);
 
         if !path.exists() || !path.is_file() {
             let config = Config::default();
