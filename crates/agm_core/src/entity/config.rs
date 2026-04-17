@@ -72,9 +72,9 @@ pub enum VideoPackageExtension {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigVersion {
     /// 主版本号，主版本号变更时，配置文件将无法兼容旧版本
-    major: u32,
+    pub major: u32,
     /// 次版本号，次版本号变更时，配置文件将可以兼容旧版本
-    minor: u32,
+    pub minor: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
