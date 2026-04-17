@@ -3,8 +3,9 @@ use crate::service::config::ConfigService;
 mod entity;
 mod service;
 
-fn main() {
-    let config = ConfigService::read_config(Option::<&str>::None);
+#[tokio::main]
+async fn main() {
+    let config = ConfigService::read_config(Option::<&str>::None).await;
     match config {
         Ok(config) => {
             println!("{:?}", config);

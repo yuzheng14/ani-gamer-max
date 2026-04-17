@@ -5,4 +5,5 @@ members = ["crates/*"]
 [workspace.dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = { version = "2.0.18" }
+tokio = { version = "1", features = ["full"] }
 toml = { version = "1.1.2+spec-1.1.0" }
